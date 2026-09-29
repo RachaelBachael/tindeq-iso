@@ -262,6 +262,14 @@ export function App() {
     }
   }, [handleSample, setPhaseBoth]);
 
+  const tare = useCallback(async () => {
+    try {
+      await deviceRef.current?.tare();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
   useEffect(() => {
     return () => {
       void deviceRef.current?.disconnect();
@@ -349,10 +357,16 @@ export function App() {
           {/* Until the device is talking to us there is no weight to read, so
               connecting takes that slot. */}
           {connected ? (
-            <div className="tile">
+            // Connecting tares, but the reading can drift or the device may
+            // have been loaded then, so a click zeroes it again.
+            <button
+              className="tile"
+              onClick={tare}
+              title="Click to tare (reset to zero). Take the load off first."
+            >
               <span className="value">{kg1(force)}</span>
               <span className="label">measured (kg)</span>
-            </div>
+            </button>
           ) : (
             <button
               className="tile connect primary"
