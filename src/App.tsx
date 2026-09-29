@@ -262,14 +262,6 @@ export function App() {
     }
   }, [handleSample, setPhaseBoth]);
 
-  const tare = useCallback(async () => {
-    try {
-      await deviceRef.current?.tare();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, []);
-
   useEffect(() => {
     return () => {
       void deviceRef.current?.disconnect();
@@ -354,19 +346,13 @@ export function App() {
             <span className="label">target (kg)</span>
           </label>
 
-          {/* Until the device is talking to us there is no weight to read and
-              nothing to zero, so connecting takes both of those slots. */}
+          {/* Until the device is talking to us there is no weight to read, so
+              connecting takes that slot. */}
           {connected ? (
-            <>
-              <div className="tile">
-                <span className="value">{kg1(force)}</span>
-                <span className="label">measured (kg)</span>
-              </div>
-              <button className="tile" onClick={tare}>
-                <span className="value word">tare</span>
-                <span className="label">reset to zero</span>
-              </button>
-            </>
+            <div className="tile">
+              <span className="value">{kg1(force)}</span>
+              <span className="label">measured (kg)</span>
+            </div>
           ) : (
             <button
               className="tile connect primary"
@@ -379,13 +365,17 @@ export function App() {
         </div>
 
         <div className="tiles">
-          <div className="tile success">
-            <span className="value">{successes}</span>
-            <span className="label">succeeded</span>
-          </div>
-          <div className="tile fail">
-            <span className="value">{failures}</span>
-            <span className="label">failed</span>
+          {/* Plain until the first rep, then green while every rep has
+              succeeded and red once any has failed. */}
+          <div
+            className={`tile reps ${
+              failures > 0 ? "some-failed" : successes > 0 ? "all-succeeded" : ""
+            }`}
+          >
+            <span className="value">
+              {successes}/{successes + failures}
+            </span>
+            <span className="label">succeeded / total</span>
           </div>
           {/* Below the threshold: count up to track rest between reps. Whole
               seconds only — a M:SS clock reads as more precision than a rest
@@ -396,10 +386,10 @@ export function App() {
           </div>
         </div>
 
+        <p className="hint">Successful holds are counted automatically.</p>
         <p className="hint">
-          Successful holds are counted automatically. Press{" "}
-          <kbd>Space</kbd> to log a failed rep, <kbd>Shift</kbd>+<kbd>Space</kbd>{" "}
-          to undo one.
+          Press <kbd>Space</kbd> to log a failed rep,{" "}
+          <kbd>Shift</kbd>+<kbd>Space</kbd> to undo one.
         </p>
       </section>
     </div>

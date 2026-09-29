@@ -102,8 +102,11 @@ button.primary:hover:not(:disabled) {
   text-align: center;
 }
 
+/* As wide as two tiles and the gap between them, so the hints below wrap to
+   the width of the grid. */
 .readout {
-  margin-top: 28px;
+  max-width: 336px;
+  margin: 28px auto 0;
   text-align: center;
 }
 
@@ -137,12 +140,6 @@ button.primary:hover:not(:disabled) {
   line-height: 1;
 }
 
-/* A word in the value slot needs to be smaller than a number to sit there
-   without dominating the row. */
-.tile .value.word {
-  font-size: 1.7rem;
-}
-
 .tile .label {
   font-size: 0.8rem;
   color: #8b93a3;
@@ -152,10 +149,8 @@ button.tile:hover:not(:disabled) {
   background: #232733;
 }
 
-/* Stands in for both the reading and the tare button while disconnected, so it
-   spans their two slots. */
+/* Stands in for the reading while disconnected. */
 .tile.connect {
-  max-width: 336px;
   font-size: 1.15rem;
 }
 
@@ -233,10 +228,15 @@ button.tile:hover:not(:disabled) {
 }
 
 .hint {
-  margin-top: 16px;
+  margin: 16px 0 0;
   text-align: center;
   font-size: 0.85rem;
   color: #8b93a3;
+}
+
+/* Consecutive hints read as one block of help, not separate sections. */
+.hint + .hint {
+  margin-top: 6px;
 }
 
 kbd {
@@ -250,11 +250,11 @@ kbd {
   color: #e8eaed;
 }
 
-.tile.success .value {
+.tile.reps.all-succeeded .value {
   color: #57e08a;
 }
 
-.tile.fail .value {
+.tile.reps.some-failed .value {
   color: #ff7a7a;
 }
 
