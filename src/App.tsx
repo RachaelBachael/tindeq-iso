@@ -244,7 +244,8 @@ export function App() {
     try {
       setConnState("connecting");
       await dev.connect();
-      await dev.startMeasurement();
+      // Zero the scale on every connect; tare() also starts the measurement.
+      await dev.tare();
       setConnState("connected");
       holdStartRef.current = null;
       setRestMs(0); // the effect above starts the clock for the first rep
