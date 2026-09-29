@@ -250,11 +250,15 @@ kbd {
   color: #e8eaed;
 }
 
-.tile.reps.all-succeeded .value {
+.tile.reps.set-succeeded .value {
   color: #57e08a;
 }
 
 .tile.reps.some-failed .value {
+  color: #ffb35c;
+}
+
+.tile.reps.set-failed .value {
   color: #ff7a7a;
 }
 

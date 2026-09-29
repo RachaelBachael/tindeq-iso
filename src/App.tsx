@@ -8,6 +8,8 @@ import { playFinalBeep, playHoldBeep, unlockAudio } from "./sounds.ts";
 
 const HOLD_SECONDS = 6;
 const HOLD_MS = HOLD_SECONDS * 1000;
+// Reps in a set; the round counter's colour tracks progress towards it.
+const SET_REPS = 6;
 // The load that counts as "the user is pulling". Doubles as the floor for the
 // target weight: a mistyped target this low is exceeded by almost any resting
 // load, which would drop the app straight into the hold view where the field is
@@ -379,11 +381,18 @@ export function App() {
         </div>
 
         <div className="tiles">
-          {/* Plain until the first rep, then green while every rep has
-              succeeded and red once any has failed. */}
+          {/* Orange once a rep has failed, red if the set has run its length
+              with a failure in it, green for a clean full set, otherwise
+              plain. */}
           <div
             className={`tile reps ${
-              failures > 0 ? "some-failed" : successes > 0 ? "all-succeeded" : ""
+              failures > 0
+                ? successes + failures >= SET_REPS
+                  ? "set-failed"
+                  : "some-failed"
+                : successes >= SET_REPS
+                  ? "set-succeeded"
+                  : ""
             }`}
           >
             <span className="value">
