@@ -291,3 +291,30 @@ kbd {
   color: #e8eaed;
   background: #232733;
 }
+
+/* Exercise sequence (shoulder press → curl → deadlift). */
+.exercises {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+.exercises .exercise {
+  flex: 1;
+  padding: 10px 6px;
+  font-size: 0.95rem;
+  opacity: 0.55;
+}
+.exercises .exercise.current {
+  opacity: 1;
+  outline: 2px solid #4caf7d;
+}
+.done {
+  text-align: center;
+  color: #4caf7d;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+.hint.log-saved { color: #4caf7d; }
+.hint.log-error, .hint.log-off { color: #e0a046; }
+.setup { display: flex; gap: 8px; margin-top: 8px; }
+.setup input { flex: 1; padding: 8px; font-size: 0.9rem; background: #1d2029; color: inherit; border: 1px solid #3a3f4b; border-radius: 6px; }

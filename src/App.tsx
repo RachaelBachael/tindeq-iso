@@ -5,6 +5,30 @@ import {
   type ForceSample,
 } from "./tindeq.ts";
 import { playFinalBeep, playHoldBeep, unlockAudio } from "./sounds.ts";
+import {
+  EXERCISES,
+  EXERCISE_NAMES,
+  fetchState,
+  flushPending,
+  getConfig,
+  logEntry,
+  setEndpoint,
+  type Exercise,
+} from "./sheetLog.ts";
+
+// A pull that reaches this fraction of the target and is let go without a
+// completed hold counts as a failed rep.
+const ATTEMPT_FRACTION = 0.5;
+// Pause after a set's last rep before moving to the next exercise.
+const ADVANCE_DELAY_MS = 2500;
+
+type LogStatus =
+  | { kind: "off" }
+  | { kind: "loading" }
+  | { kind: "ready" }
+  | { kind: "sending" }
+  | { kind: "saved"; at: Date }
+  | { kind: "error"; message: string };
 
 const HOLD_SECONDS = 6;
 const HOLD_MS = HOLD_SECONDS * 1000;
@@ -37,6 +61,19 @@ export function App() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [successes, setSuccesses] = useState(0);
   const [failures, setFailures] = useState(0);
+
+  // Session sequence and sheet logging.
+  const [exerciseIdx, setExerciseIdx] = useState(0);
+  const [weights, setWeights] = useState<Partial<Record<Exercise, number>>>({});
+  const [logStatus, setLogStatus] = useState<LogStatus>(
+    getConfig() ? { kind: "loading" } : { kind: "off" },
+  );
+  const exercise = EXERCISES[exerciseIdx];
+  const [setupText, setSetupText] = useState("");
+  const [configVersion, setConfigVersion] = useState(0);
+  // Set while a pull has got close enough to count as an attempt; cleared on release.
+  const attemptArmedRef = useRef(false);
+  const attemptSucceededRef = useRef(false);
 
   // Mutable state read inside the BLE sample handler (which is registered once).
   const targetRef = useRef(targetKg);
@@ -94,6 +131,15 @@ export function App() {
       if (phase === "idle") return; // not connected / not measuring
       const target = targetRef.current;
 
+      // Automatic failed-rep detection: a real pull that ends without a hold.
+      if (f >= target * ATTEMPT_FRACTION && f > MIN_TARGET_KG) {
+        attemptArmedRef.current = true;
+      } else if (f < MIN_TARGET_KG && attemptArmedRef.current) {
+        if (!attemptSucceededRef.current) setFailures((n) => n + 1);
+        attemptArmedRef.current = false;
+        attemptSucceededRef.current = false;
+      }
+
       switch (phase) {
         case "waiting":
           // Below target, ready. Start the countdown once force reaches target.
@@ -115,12 +161,13 @@ export function App() {
           if (f < target) {
             holdStartRef.current = null;
             setPhaseBoth("waiting");
-            // Beeps just stop — going silent is the out-of-range cue. Failed
-            // reps aren't auto-counted; the user logs them with the Space key.
+            // Beeps just stop — going silent is the out-of-range cue. If the
+            // user lets go without re-reaching the target, it counts as failed.
           } else if (heldMs >= HOLD_MS) {
             holdStartRef.current = null;
             setPhaseBoth("success");
             playFinalBeep(); // the emphatic 7th beep
+            attemptSucceededRef.current = true;
             setSuccesses((n) => n + 1);
           }
           break;
@@ -165,6 +212,64 @@ export function App() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
+  // Move to an exercise: its target comes from the sheet, counters restart.
+  const goToExercise = useCallback(
+    (idx: number, w: Partial<Record<Exercise, number>>) => {
+      setExerciseIdx(idx);
+      const kg = w[EXERCISES[idx]];
+      if (kg !== undefined && kg >= MIN_TARGET_KG) {
+        const rounded = Number(kg.toFixed(1));
+        setTargetKg(rounded);
+        setTargetText(String(rounded));
+        setTargetError(null);
+      }
+      setSuccesses(0);
+      setFailures(0);
+      attemptArmedRef.current = false;
+      attemptSucceededRef.current = false;
+    },
+    [],
+  );
+
+  // On load: read this session's targets from the sheet, and resume at the
+  // first exercise not yet logged today.
+  useEffect(() => {
+    if (!getConfig()) return;
+    void flushPending().catch(() => {});
+    fetchState()
+      .then((state) => {
+        const w: Partial<Record<Exercise, number>> = {};
+        for (const ex of EXERCISES) {
+          const v = Number(state.weights[ex]);
+          if (Number.isFinite(v) && v > 0) w[ex] = v;
+        }
+        setWeights(w);
+        const next = EXERCISES.findIndex((ex) => state.reps[ex] === "");
+        goToExercise(next === -1 ? 0 : next, w);
+        setLogStatus({ kind: "ready" });
+      })
+      .catch((e) =>
+        setLogStatus({ kind: "error", message: e instanceof Error ? e.message : String(e) }),
+      );
+  }, [goToExercise, configVersion]);
+
+  // Log every rep as it happens, so a session cut short is still recorded.
+  const attempts = successes + failures;
+  useEffect(() => {
+    if (!getConfig() || attempts === 0) return;
+    setLogStatus({ kind: "sending" });
+    logEntry({ exercise, weight: targetKg, successes, attempts })
+      .then(() => setLogStatus({ kind: "saved", at: new Date() }))
+      .catch((e) =>
+        setLogStatus({
+          kind: "error",
+          message: `${e instanceof Error ? e.message : String(e)} — will retry`,
+        }),
+      );
+    // Deliberately keyed on the counts only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [successes, failures]);
+
   const connected = connState === "connected";
   const inRange = force >= targetKg;
   // The distraction-free view takes over as soon as there is real load on the
@@ -173,11 +278,22 @@ export function App() {
   // still short of the target is what tells them how much harder to pull.
   const simplified = connected && force > MIN_TARGET_KG;
 
+  // After the set's last rep, once the device is released, move on.
+  useEffect(() => {
+    if (attempts < SET_REPS || simplified) return;
+    if (exerciseIdx >= EXERCISES.length - 1) return;
+    const t = setTimeout(() => goToExercise(exerciseIdx + 1, weights), ADVANCE_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [attempts, simplified, exerciseIdx, weights, goToExercise]);
+  const sessionDone = attempts >= SET_REPS && exerciseIdx === EXERCISES.length - 1;
+
   // Focus the weight field with its contents selected, so the next digit typed
   // replaces the old target instead of being appended to it.
   const selectTarget = useCallback(() => {
     const input = targetInputRef.current;
     if (!input) return;
+    // Don't pull focus away from the one-time setup field.
+    if (document.activeElement?.closest(".setup")) return;
     input.focus();
     input.select();
   }, []);
@@ -327,6 +443,19 @@ export function App() {
 
       <h1>Tindeq Isometric Trainer</h1>
 
+      <nav className="exercises">
+        {EXERCISES.map((ex, i) => (
+          <button
+            key={ex}
+            className={`exercise ${i === exerciseIdx ? "current" : ""}`}
+            onClick={() => goToExercise(i, weights)}
+          >
+            {EXERCISE_NAMES[ex]}
+          </button>
+        ))}
+      </nav>
+      {sessionDone && <p className="done">Session complete. Nice work.</p>}
+
       {!TindeqProgressor.isSupported() && (
         <p className="warn">
           Web Bluetooth isn't available in this browser. Use Chrome, Edge, or
@@ -409,14 +538,56 @@ export function App() {
           </div>
         </div>
 
-        <p className="hint">Successful holds are counted automatically.</p>
         <p className="hint">
-          Press <kbd>Space</kbd> to log a failed rep,{" "}
-          <kbd>Shift</kbd>+<kbd>Space</kbd> to undo one.
+          Holds and failed pulls are counted automatically. <kbd>Space</kbd> adds a
+          missed failure, <kbd>Shift</kbd>+<kbd>Space</kbd> removes one.
         </p>
+        <p className={`hint log-${logStatus.kind}`}>{logText(logStatus)}</p>
+        {logStatus.kind === "off" && (
+          <form
+            className="setup"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (setEndpoint(setupText)) {
+                setSetupText("");
+                setError(null);
+                setLogStatus({ kind: "loading" });
+                setConfigVersion((v) => v + 1);
+              } else {
+                setError("That isn't an Apps Script web-app URL (…/macros/s/…/exec).");
+              }
+            }}
+          >
+            <input
+              type="url"
+              placeholder="Paste your sheet's web-app URL"
+              value={setupText}
+              onChange={(e) => setSetupText(e.target.value)}
+              onKeyDown={(e) => e.stopPropagation()}
+            />
+            <button type="submit">Save</button>
+          </form>
+        )}
       </section>
     </div>
   );
+}
+
+function logText(s: LogStatus): string {
+  switch (s.kind) {
+    case "off":
+      return "Sheet logging is not set up in this browser.";
+    case "loading":
+      return "Loading today's targets from your sheet…";
+    case "ready":
+      return "Targets loaded. Reps log to your sheet automatically.";
+    case "sending":
+      return "Saving to sheet…";
+    case "saved":
+      return `Saved to sheet at ${s.at.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`;
+    case "error":
+      return `Sheet: ${s.message}`;
+  }
 }
 
 /** The GitHub "Octocat" mark, from https://github.com/logos. */
